@@ -1,0 +1,101 @@
+---
+output: reprex::reprex_document
+knit: reprex::reprex_render
+---
+```{r}
+# pacotes necessários
+library(quantmod)   
+library(TTR)        
+library(dplyr)
+library(progress)
+```
+```{r}
+calcular_macd <- function(close, fast = 12, slow = 26, signal = 9) {
+
+  ema_fast <- EMA(close, n = fast)
+  ema_slow <- EMA(close, n = slow)
+  
+
+  macd <- ema_fast - ema_slow
+
+  macd_signal <- EMA(macd, n = signal)
+  
+  macd_hist <- macd - macd_signal
+  
+  resultado <- cbind(macd, macd_signal, macd_hist)
+  colnames(resultado) <- c("MACD", "Signal", "Histogram")
+  
+  return(resultado)
+}
+```
+```{r}
+stock_codes <- c(
+  "ABEV3","ASAI3","AXIA3","B3SA3","BBAS3","BBDC3","BBDC4",
+  "BBSE3","BPAC11","BRAV3","CMIG4","COGN3","CPLE3","CSAN3","CSNA3",
+  "CYRE3","CYRE4","EMBJ3","ENEV3","ENGI11","EQTL3","GGBR4","HAPV3",
+  "ITSA4","ITUB4","KLBN11","LREN3","MBRF3","MGLU3","MOTV3","MULT3",
+  "NATU3","PETR3","PETR4","POMO4","PRIO3","PSSA3","RADL3","RAIL3",
+  "RDOR3","RENT3","RENT4","SBSP3","SMFT3","SUZB3","TIMS3","TOTS3",
+  "UGPA3","VALE3","VBBR3","VIVT3","WEGE3"
+)
+stock_codes_sa <- paste0(stock_codes, ".SA")
+print(stock_codes_sa)
+
+```
+```{r}
+obter_cotacoes <- function(data_referencia, codigos_acoes) {
+  lista_dfs <- list()
+
+  for (cdgo in codigos_acoes) {
+    df <- tryCatch(
+      getSymbols(cdgo, src = "yahoo",
+                 from = data_referencia,
+                 auto.assign = FALSE,
+                 warnings = TRUE),
+      error = function(e) NULL
+    )
+    if (is.null(df)) next
+
+    df <- data.frame(Date = index(df), coredata(df))
+    colnames(df) <- c("Date","Open","High","Low","Close","Volume","Adjusted")
+    df$CD_ACAO <- cdgo
+    df <- df %>% select(Date, CD_ACAO, High, Low, Close, Volume)
+
+    lista_dfs[[cdgo]] <- df
+  }
+  return(lista_dfs)
+}
+
+data_referencia <- "2025-01-01"
+ne <- obter_cotacoes(data_referencia, stock_codes_sa)
+ne  
+```
+```{r}
+pb <- progress_bar$new(total = length(ne), format = "[:bar] :percent :eta")
+for (i in seq_along(ne)) {
+  pb$tick() 
+  df <- ne[[i]]
+
+  df$RSI <- RSI(df$Close, n = 14)
+
+  macd_vals <- calcular_macd(df$Close, fast = 12, slow = 26, signal = 9)
+  df$MACD <- macd_vals[, "MACD"]
+  df$MACD_Signal <- macd_vals[, "Signal"]
+  df$MACD_Hist <- macd_vals[, "Histogram"]
+
+  bb <- BBands(df$Close, n = 20, sd = 2)
+  df$BB_Upper  <- bb[, "up"]
+  df$BB_Middle <- bb[, "mavg"]
+  df$BB_Lower  <- bb[, "dn"]
+  
+  stoch_vals <- stoch(df[, c("High", "Low", "Close")], nFastK = 14, nFastD = 3, nSlowK = 3, nSlowD = 3)
+  df$Stoch_FastK <- stoch_vals[, "fastK"]
+  df$Stoch_FastD <- stoch_vals[, "fastD"]
+  df$Stoch_SlowD <- stoch_vals[, "slowD"]
+
+  ne[[i]] <- df
+}
+
+```
+
+
